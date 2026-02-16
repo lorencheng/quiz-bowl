@@ -181,7 +181,7 @@ export default function TossupPractice() {
           <div className="question-text">
             {words.map((word, i) => {
               // Only show words up to current TTS position (or all if buzzed/done)
-              const visible = phase === PHASE.RESULT || i <= (phase === PHASE.BUZZING ? buzzIndex : tts.wordIndex)
+              const visible = phase === PHASE.RESULT || tts.done || i <= (phase === PHASE.BUZZING ? buzzIndex : tts.wordIndex)
               if (!visible) return null
               return (
                 <span

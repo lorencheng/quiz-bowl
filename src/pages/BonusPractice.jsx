@@ -178,7 +178,7 @@ export default function BonusPractice() {
             {phase === PHASE.READING_LEADIN
               ? currentWords.map((word, i) => (
                   <span key={i} className={`word ${i === tts.wordIndex ? 'highlight' : ''}`}>
-                    {i <= tts.wordIndex ? word + ' ' : ''}
+                    {(tts.done || i <= tts.wordIndex) ? word + ' ' : ''}
                   </span>
                 ))
               : (bonus.leadin_sanitized || bonus.leadin)
@@ -203,7 +203,7 @@ export default function BonusPractice() {
                     {isActive && phase === PHASE.READING_PART
                       ? currentWords.map((word, i) => (
                           <span key={i} className={`word ${i === tts.wordIndex ? 'highlight' : ''}`}>
-                            {i <= tts.wordIndex ? word + ' ' : ''}
+                            {(tts.done || i <= tts.wordIndex) ? word + ' ' : ''}
                           </span>
                         ))
                       : partText

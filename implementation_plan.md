@@ -206,13 +206,51 @@ Allow users to create and manage private multiplayer rooms with password protect
 
 ---
 
+## Step 3b: Voice Answer Input ✅ COMPLETE
+
+**What was done:**
+
+### Speech Recognition Hook (`src/hooks/useSpeechRecognition.js`) — NEW
+- Wraps `SpeechRecognition` / `webkitSpeechRecognition` Web API
+- `start()`, `stop()`, `reset()`, `listening`, `transcript`, `supported`
+- Callbacks: `onFinalResult(transcript)` fires when user pauses speaking (auto-submit), `onInterimResult(transcript)` fires with interim text (live preview)
+- `continuous: false`, `interimResults: true`, `lang: 'en-US'`
+- Graceful error handling: `no-speech`, `aborted`, `not-allowed` (mic denied)
+- Returns `supported: false` if browser lacks the API (Firefox, older browsers)
+
+### Integration Pattern (all three modes)
+- **Voice is default**: recognition starts automatically when answer phase begins
+- **Auto-submit on pause**: `onFinalResult` callback submits the answer
+- **Typing fallback**: any non-Enter keypress in the input calls `stop()` and sets `voiceDisabled = true`
+- **Reset per question**: on phase change, voice resets and `voiceDisabled` clears
+- **Visual feedback**: `.answer-input.listening` pulsing border, mic icon indicator
+
+### TossupPractice.jsx
+- Voice starts on BUZZING phase
+- `doSubmit(answerText)` extracted for shared voice/keyboard use
+- `submittingRef` prevents double-submit
+
+### BonusPractice.jsx
+- Voice starts on ANSWERING phase (after TTS finishes reading part)
+- Same pattern as tossup
+
+### Multiplayer.jsx
+- Voice starts when `buzzedPlayer.userId === clientRef.current.userId`
+- Interim results send `giveAnswerLiveUpdate()` so other players see answer forming
+- Final result calls `giveAnswer()` via `doSubmitAnswer()`
+
+### CSS
+- `Practice.css` + `Multiplayer.css`: `.answer-input-wrapper`, `.answer-input.listening` (pulsing border animation), `.mic-status` (positioned absolute, pulsing opacity)
+
+---
+
 ## Known Issues / Tech Debt
 
 1. **socket.io-client is installed but unused** — The multiplayer client uses raw WebSocket. Consider removing the socket.io-client dependency.
 2. **Dark mode CSS incomplete** — The `Practice.css` uses hardcoded light-mode colors (e.g., `background: #f5f5f5`, `color: #555`). The `index.css` has a `prefers-color-scheme` media query but component styles don't adapt.
 3. **No error recovery in multiplayer** — If the WebSocket disconnects unexpectedly, there's no auto-reconnect logic.
 4. **TTS in multiplayer is per-word utterance** — Each word from `update-question` creates a new `SpeechSynthesisUtterance`, which can sound choppy. The single-player modes use the smarter chunked `useTTS` hook instead.
-5. **No git commits yet** — All files are untracked. Should make an initial commit.
+5. ~~**No git commits yet** — All files are untracked. Should make an initial commit.~~ ✅ Fixed — initial commit made.
 6. **`index.html` title** says "quizbowl-temp" — should be updated.
 
 ---
@@ -220,4 +258,5 @@ Allow users to create and manage private multiplayer rooms with password protect
 ## Session Log
 
 - **Session 1** (pre-crash): Steps 1–4 implemented. All files written but no git commits made.
-- **Session 2** (2026-02-15): Laptop crashed. Reviewed all existing code. Created this implementation plan. Steps 1–4 confirmed complete. Step 5 not yet started.
+- **Session 2** (2026-02-15): Laptop crashed. Reviewed all existing code. Created this implementation plan. Steps 1–4 confirmed complete. Step 5 not yet started. Initial git commit made. TTS bugs fixed (power scoring, Android word display). Complete TTS redesign: two-strategy approach (desktop single utterance + onboundary, Android punctuation-based chunks). Voice answer input implemented across all three modes (Step 3b).
+- **Session 3** (2026-02-16): Continued voice input implementation. Completed Multiplayer.jsx integration and CSS styles.

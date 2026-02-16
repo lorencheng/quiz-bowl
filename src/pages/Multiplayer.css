@@ -286,6 +286,39 @@
   padding: 0.4rem 0.8rem;
 }
 
+/* Voice input */
+.answer-input-wrapper {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.answer-input.listening {
+  animation: pulse-border 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: #646cff; }
+  50% { border-color: #e53935; }
+}
+
+.mic-status {
+  position: absolute;
+  right: 0.6rem;
+  font-size: 1.1rem;
+  pointer-events: none;
+}
+
+.mic-status.active {
+  animation: pulse-mic 1s ease-in-out infinite;
+}
+
+@keyframes pulse-mic {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .room-layout {

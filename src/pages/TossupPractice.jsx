@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getRandomTossup, checkAnswer } from '../api/qbreader'
 import useTTS from '../hooks/useTTS'
+import useSpeechRecognition from '../hooks/useSpeechRecognition'
 import Settings from '../components/Settings'
 import '../components/Settings.css'
 import './Practice.css'
@@ -29,72 +30,24 @@ export default function TossupPractice() {
   const [score, setScore] = useState({ correct: 0, neg: 0, total: 0, questions: 0 })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [voiceDisabled, setVoiceDisabled] = useState(false)
 
   const answerInputRef = useRef(null)
+  const submittingRef = useRef(false)
 
   const tts = useTTS({ rate: settings.rate, voiceURI: settings.voiceURI })
 
-  // Fetch a new tossup
-  const fetchTossup = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    tts.reset()
-    setPhase(PHASE.IDLE)
-    setResult(null)
-    setAnswer('')
-    setBuzzIndex(-1)
+  // Submit answer (extracted so voice and keyboard can both call it)
+  const doSubmit = useCallback(async (answerText) => {
+    if (!answerText.trim() || !tossup) return
+    if (submittingRef.current) return
+    submittingRef.current = true
 
-    try {
-      const opts = {}
-      if (settings.categories.length > 0) opts.categories = settings.categories
-      if (settings.difficulties.length > 0) opts.difficulties = settings.difficulties
-      const tossups = await getRandomTossup(opts)
-      if (!tossups || tossups.length === 0) {
-        setError('No tossups found. Try different filters.')
-        setLoading(false)
-        return
-      }
-      const t = tossups[0]
-      setTossup(t)
-      // Use sanitized text for TTS, split into words
-      const text = t.question_sanitized || t.question
-      const rawWords = text.split(/\s+/).filter(Boolean)
-      // Find power mark index from raw question (may not be in sanitized text)
-      const rawQ = (t.question || '').split(/\s+/).filter(Boolean)
-      const pwrIdx = rawQ.findIndex(w => w.includes('(*)'))
-      setPowerIndex(pwrIdx)
-      // Keep (*) in display words, strip it only for TTS
-      setWords(rawWords)
-      setPhase(PHASE.READING)
-      setLoading(false)
-      // Strip (*) from words for TTS only
-      const ttsWords = rawWords.map(word => word.replace('(*)', '').trim()).filter(Boolean)
-      tts.speak(ttsWords)
-    } catch (err) {
-      setError('Failed to fetch tossup: ' + err.message)
-      setLoading(false)
-    }
-  }, [settings.categories, settings.difficulties, tts])
-
-  // Buzz handler
-  const handleBuzz = useCallback(() => {
-    if (phase !== PHASE.READING) return
-    const stoppedAt = tts.stop()
-    setBuzzIndex(stoppedAt)
-    setPhase(PHASE.BUZZING)
-    // Focus the answer input after a short delay
-    setTimeout(() => answerInputRef.current?.focus(), 50)
-  }, [phase, tts])
-
-  // Submit answer
-  const handleSubmit = useCallback(async () => {
-    if (phase !== PHASE.BUZZING || !answer.trim()) return
     const expectedAnswer = tossup.answer_sanitized || tossup.answer
     try {
-      const res = await checkAnswer(answer.trim(), expectedAnswer)
-      const directive = res.directive // "accept", "reject", or "prompt"
+      const res = await checkAnswer(answerText.trim(), expectedAnswer)
+      const directive = res.directive
 
-      // Determine if power (buzzed before the TTS voice reached the power mark)
       let points = 0
       if (directive === 'accept') {
         if (powerIndex >= 0 && buzzIndex < powerIndex) {
@@ -105,11 +58,9 @@ export default function TossupPractice() {
       } else if (directive === 'reject') {
         points = -5
       }
-      // "prompt" means partial answer - treat as prompt for more info
-      // For simplicity we'll treat prompt like accept with 10 pts
 
       if (directive === 'prompt') {
-        points = 0 // no points yet, but show the prompt
+        points = 0
       }
 
       setResult({
@@ -130,8 +81,107 @@ export default function TossupPractice() {
       }
     } catch (err) {
       setError('Failed to check answer: ' + err.message)
+    } finally {
+      submittingRef.current = false
     }
-  }, [phase, answer, tossup, buzzIndex, powerIndex])
+  }, [tossup, buzzIndex, powerIndex])
+
+  // Voice recognition — auto-submit on final result
+  const handleVoiceFinal = useCallback((transcript) => {
+    if (phase !== PHASE.BUZZING) return
+    setAnswer(transcript)
+    doSubmit(transcript)
+  }, [phase, doSubmit])
+
+  const handleVoiceInterim = useCallback((transcript) => {
+    if (phase !== PHASE.BUZZING || voiceDisabled) return
+    setAnswer(transcript)
+  }, [phase, voiceDisabled])
+
+  const speech = useSpeechRecognition({
+    onFinalResult: handleVoiceFinal,
+    onInterimResult: handleVoiceInterim,
+  })
+
+  // Start voice recognition when buzzing phase begins
+  useEffect(() => {
+    if (phase === PHASE.BUZZING && speech.supported && !voiceDisabled) {
+      speech.start()
+    }
+    if (phase !== PHASE.BUZZING) {
+      speech.reset()
+      setVoiceDisabled(false)
+    }
+  }, [phase]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch a new tossup
+  const fetchTossup = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    tts.reset()
+    speech.reset()
+    setPhase(PHASE.IDLE)
+    setResult(null)
+    setAnswer('')
+    setBuzzIndex(-1)
+    setVoiceDisabled(false)
+
+    try {
+      const opts = {}
+      if (settings.categories.length > 0) opts.categories = settings.categories
+      if (settings.difficulties.length > 0) opts.difficulties = settings.difficulties
+      const tossups = await getRandomTossup(opts)
+      if (!tossups || tossups.length === 0) {
+        setError('No tossups found. Try different filters.')
+        setLoading(false)
+        return
+      }
+      const t = tossups[0]
+      setTossup(t)
+      const text = t.question_sanitized || t.question
+      const rawWords = text.split(/\s+/).filter(Boolean)
+      const rawQ = (t.question || '').split(/\s+/).filter(Boolean)
+      const pwrIdx = rawQ.findIndex(w => w.includes('(*)'))
+      setPowerIndex(pwrIdx)
+      setWords(rawWords)
+      setPhase(PHASE.READING)
+      setLoading(false)
+      const ttsWords = rawWords.map(word => word.replace('(*)', '').trim()).filter(Boolean)
+      tts.speak(ttsWords)
+    } catch (err) {
+      setError('Failed to fetch tossup: ' + err.message)
+      setLoading(false)
+    }
+  }, [settings.categories, settings.difficulties, tts]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Buzz handler
+  const handleBuzz = useCallback(() => {
+    if (phase !== PHASE.READING) return
+    const stoppedAt = tts.stop()
+    setBuzzIndex(stoppedAt)
+    setPhase(PHASE.BUZZING)
+    setTimeout(() => answerInputRef.current?.focus(), 50)
+  }, [phase, tts])
+
+  // Submit answer from keyboard
+  const handleSubmit = useCallback(() => {
+    if (phase !== PHASE.BUZZING || !answer.trim()) return
+    speech.stop()
+    doSubmit(answer)
+  }, [phase, answer, doSubmit, speech])
+
+  // Handle typing — disable voice input on first keypress
+  const handleAnswerKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      handleSubmit()
+      return
+    }
+    // Any other key disables voice input
+    if (!voiceDisabled && speech.listening) {
+      speech.stop()
+      setVoiceDisabled(true)
+    }
+  }, [handleSubmit, voiceDisabled, speech])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -139,9 +189,6 @@ export default function TossupPractice() {
       if (e.code === 'Space' && phase === PHASE.READING) {
         e.preventDefault()
         handleBuzz()
-      } else if (e.code === 'Enter' && phase === PHASE.BUZZING) {
-        e.preventDefault()
-        handleSubmit()
       } else if (e.code === 'KeyN' && phase === PHASE.RESULT) {
         e.preventDefault()
         fetchTossup()
@@ -149,7 +196,7 @@ export default function TossupPractice() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [phase, handleBuzz, handleSubmit, fetchTossup])
+  }, [phase, handleBuzz, fetchTossup])
 
   return (
     <div className="practice-page">
@@ -180,7 +227,6 @@ export default function TossupPractice() {
 
           <div className="question-text">
             {words.map((word, i) => {
-              // Only show words up to current TTS position (or all if buzzed/done)
               const visible = phase === PHASE.RESULT || tts.done || i <= (phase === PHASE.BUZZING ? buzzIndex : tts.wordIndex)
               if (!visible) return null
               return (
@@ -220,15 +266,22 @@ export default function TossupPractice() {
 
         {phase === PHASE.BUZZING && (
           <div className="answer-area">
-            <input
-              ref={answerInputRef}
-              type="text"
-              className="answer-input"
-              placeholder="Type your answer..."
-              value={answer}
-              onChange={e => setAnswer(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSubmit() }}
-            />
+            <div className="answer-input-wrapper">
+              <input
+                ref={answerInputRef}
+                type="text"
+                className={`answer-input ${speech.listening ? 'listening' : ''}`}
+                placeholder={speech.listening ? 'Listening... (or start typing)' : 'Type your answer...'}
+                value={answer}
+                onChange={e => setAnswer(e.target.value)}
+                onKeyDown={handleAnswerKeyDown}
+              />
+              {speech.supported && (
+                <span className={`mic-status ${speech.listening ? 'active' : ''}`}>
+                  {speech.listening ? '🎤' : ''}
+                </span>
+              )}
+            </div>
             <button className="btn primary" onClick={handleSubmit}>
               Submit (Enter)
             </button>

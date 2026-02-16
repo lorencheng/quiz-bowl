@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import MultiplayerClient from '../api/multiplayer'
 import useTTS from '../hooks/useTTS'
+import useSpeechRecognition from '../hooks/useSpeechRecognition'
 import './Multiplayer.css'
 
 const VIEW = {
@@ -37,8 +38,50 @@ export default function Multiplayer() {
   const answerInputRef = useRef(null)
   const chatInputRef = useRef(null)
   const [chatInput, setChatInput] = useState('')
+  const [voiceDisabled, setVoiceDisabled] = useState(false)
+  const submittingRef = useRef(false)
 
   const tts = useTTS({ rate: ttsRate })
+
+  // Submit answer (extracted so voice and keyboard can both call it)
+  const doSubmitAnswer = useCallback((answerText) => {
+    if (!answerText.trim()) return
+    if (submittingRef.current) return
+    submittingRef.current = true
+    clientRef.current?.giveAnswer(answerText.trim())
+    setAnswer('')
+    submittingRef.current = false
+  }, [])
+
+  // Voice recognition callbacks
+  const handleVoiceFinal = useCallback((transcript) => {
+    if (!buzzedPlayer || buzzedPlayer.userId !== clientRef.current?.userId) return
+    setAnswer(transcript)
+    doSubmitAnswer(transcript)
+  }, [buzzedPlayer, doSubmitAnswer])
+
+  const handleVoiceInterim = useCallback((transcript) => {
+    if (!buzzedPlayer || buzzedPlayer.userId !== clientRef.current?.userId || voiceDisabled) return
+    setAnswer(transcript)
+    clientRef.current?.giveAnswerLiveUpdate(transcript)
+  }, [buzzedPlayer, voiceDisabled])
+
+  const speech = useSpeechRecognition({
+    onFinalResult: handleVoiceFinal,
+    onInterimResult: handleVoiceInterim,
+  })
+
+  // Start voice recognition when this player buzzes
+  useEffect(() => {
+    const isBuzzed = buzzedPlayer && buzzedPlayer.userId === clientRef.current?.userId
+    if (isBuzzed && speech.supported && !voiceDisabled) {
+      speech.start()
+    }
+    if (!isBuzzed) {
+      speech.reset()
+      setVoiceDisabled(false)
+    }
+  }, [buzzedPlayer]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch room list
   const fetchRooms = useCallback(async () => {
@@ -258,12 +301,24 @@ export default function Multiplayer() {
     clientRef.current?.buzz()
   }, [canBuzz])
 
-  // Submit answer
+  // Submit answer from keyboard
   const handleSubmitAnswer = useCallback(() => {
     if (!answer.trim()) return
-    clientRef.current?.giveAnswer(answer.trim())
-    setAnswer('')
-  }, [answer])
+    speech.stop()
+    doSubmitAnswer(answer)
+  }, [answer, doSubmitAnswer, speech])
+
+  // Handle typing — disable voice on first keypress
+  const handleAnswerKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      handleSubmitAnswer()
+      return
+    }
+    if (!voiceDisabled && speech.listening) {
+      speech.stop()
+      setVoiceDisabled(true)
+    }
+  }, [handleSubmitAnswer, voiceDisabled, speech])
 
   // Send chat
   const handleSendChat = useCallback(() => {
@@ -452,18 +507,25 @@ export default function Multiplayer() {
 
             {buzzedPlayer && buzzedPlayer.userId === clientRef.current?.userId && (
               <div className="answer-area">
-                <input
-                  ref={answerInputRef}
-                  type="text"
-                  className="answer-input"
-                  placeholder="Type your answer..."
-                  value={answer}
-                  onChange={e => {
-                    setAnswer(e.target.value)
-                    clientRef.current?.giveAnswerLiveUpdate(e.target.value)
-                  }}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSubmitAnswer() }}
-                />
+                <div className="answer-input-wrapper">
+                  <input
+                    ref={answerInputRef}
+                    type="text"
+                    className={`answer-input ${speech.listening ? 'listening' : ''}`}
+                    placeholder={speech.listening ? 'Listening... (or start typing)' : 'Type your answer...'}
+                    value={answer}
+                    onChange={e => {
+                      setAnswer(e.target.value)
+                      clientRef.current?.giveAnswerLiveUpdate(e.target.value)
+                    }}
+                    onKeyDown={handleAnswerKeyDown}
+                  />
+                  {speech.supported && (
+                    <span className={`mic-status ${speech.listening ? 'active' : ''}`}>
+                      {speech.listening ? '🎤' : ''}
+                    </span>
+                  )}
+                </div>
                 <button className="btn primary" onClick={handleSubmitAnswer}>Submit</button>
               </div>
             )}

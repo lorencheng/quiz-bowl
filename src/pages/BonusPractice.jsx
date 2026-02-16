@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getRandomBonus, checkAnswer } from '../api/qbreader'
 import useTTS from '../hooks/useTTS'
+import useSpeechRecognition from '../hooks/useSpeechRecognition'
 import Settings from '../components/Settings'
 import '../components/Settings.css'
 import './Practice.css'
@@ -24,15 +25,82 @@ export default function BonusPractice() {
   const [bonus, setBonus] = useState(null)
   const [phase, setPhase] = useState(PHASE.IDLE)
   const [currentPart, setCurrentPart] = useState(0)
-  const [partResults, setPartResults] = useState([]) // { correct: bool, points: number }
+  const [partResults, setPartResults] = useState([])
   const [answer, setAnswer] = useState('')
   const [currentWords, setCurrentWords] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [totalScore, setTotalScore] = useState({ total: 0, bonuses: 0, thirties: 0 })
+  const [voiceDisabled, setVoiceDisabled] = useState(false)
 
   const answerInputRef = useRef(null)
+  const submittingRef = useRef(false)
   const tts = useTTS({ rate: settings.rate, voiceURI: settings.voiceURI })
+
+  // Submit answer for current part (extracted so voice and keyboard can both call)
+  const doSubmit = useCallback(async (answerText) => {
+    if (!answerText.trim() || !bonus) return
+    if (submittingRef.current) return
+    submittingRef.current = true
+
+    const expectedAnswer = bonus.answers_sanitized?.[currentPart] || bonus.answers[currentPart]
+    try {
+      const res = await checkAnswer(answerText.trim(), expectedAnswer)
+      const correct = res.directive === 'accept'
+      const points = correct ? 10 : 0
+
+      const newResults = [...partResults, { correct, points, userAnswer: answerText.trim() }]
+      setPartResults(newResults)
+      setAnswer('')
+      setPhase(PHASE.PART_RESULT)
+
+      setTimeout(() => {
+        if (currentPart < bonus.parts.length - 1) {
+          readPart(bonus, currentPart + 1)
+        } else {
+          const bonusTotal = newResults.reduce((sum, r) => sum + r.points, 0)
+          setTotalScore(prev => ({
+            total: prev.total + bonusTotal,
+            bonuses: prev.bonuses + 1,
+            thirties: prev.thirties + (bonusTotal === 30 ? 1 : 0),
+          }))
+          setPhase(PHASE.DONE)
+        }
+      }, 1500)
+    } catch (err) {
+      setError('Failed to check answer: ' + err.message)
+    } finally {
+      submittingRef.current = false
+    }
+  }, [bonus, currentPart, partResults]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Voice recognition callbacks
+  const handleVoiceFinal = useCallback((transcript) => {
+    if (phase !== PHASE.ANSWERING) return
+    setAnswer(transcript)
+    doSubmit(transcript)
+  }, [phase, doSubmit])
+
+  const handleVoiceInterim = useCallback((transcript) => {
+    if (phase !== PHASE.ANSWERING || voiceDisabled) return
+    setAnswer(transcript)
+  }, [phase, voiceDisabled])
+
+  const speech = useSpeechRecognition({
+    onFinalResult: handleVoiceFinal,
+    onInterimResult: handleVoiceInterim,
+  })
+
+  // Start voice recognition when answering phase begins
+  useEffect(() => {
+    if (phase === PHASE.ANSWERING && speech.supported && !voiceDisabled) {
+      speech.start()
+    }
+    if (phase !== PHASE.ANSWERING) {
+      speech.reset()
+      setVoiceDisabled(false)
+    }
+  }, [phase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Start reading a part
   const readPart = useCallback((b, partIndex) => {
@@ -48,7 +116,6 @@ export default function BonusPractice() {
   useEffect(() => {
     if (tts.done && (phase === PHASE.READING_PART || phase === PHASE.READING_LEADIN)) {
       if (phase === PHASE.READING_LEADIN) {
-        // After leadin, read part 0
         readPart(bonus, 0)
       } else {
         setPhase(PHASE.ANSWERING)
@@ -62,11 +129,13 @@ export default function BonusPractice() {
     setLoading(true)
     setError(null)
     tts.reset()
+    speech.reset()
     setPhase(PHASE.IDLE)
     setPartResults([])
     setAnswer('')
     setCurrentPart(0)
     setCurrentWords([])
+    setVoiceDisabled(false)
 
     try {
       const opts = {}
@@ -82,7 +151,6 @@ export default function BonusPractice() {
       setBonus(b)
       setLoading(false)
 
-      // Read leadin first
       const leadinText = b.leadin_sanitized || b.leadin
       const words = leadinText.split(/\s+/).filter(Boolean)
       setCurrentWords(words)
@@ -92,48 +160,31 @@ export default function BonusPractice() {
       setError('Failed to fetch bonus: ' + err.message)
       setLoading(false)
     }
-  }, [settings.categories, settings.difficulties, tts])
+  }, [settings.categories, settings.difficulties, tts]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Submit answer for current part
-  const handleSubmit = useCallback(async () => {
+  // Submit from keyboard
+  const handleSubmit = useCallback(() => {
     if (phase !== PHASE.ANSWERING || !answer.trim()) return
+    speech.stop()
+    doSubmit(answer)
+  }, [phase, answer, doSubmit, speech])
 
-    const expectedAnswer = bonus.answers_sanitized?.[currentPart] || bonus.answers[currentPart]
-    try {
-      const res = await checkAnswer(answer.trim(), expectedAnswer)
-      const correct = res.directive === 'accept'
-      const points = correct ? 10 : 0
-
-      const newResults = [...partResults, { correct, points, userAnswer: answer.trim() }]
-      setPartResults(newResults)
-      setAnswer('')
-      setPhase(PHASE.PART_RESULT)
-
-      // After a short delay, either move to next part or finish
-      setTimeout(() => {
-        if (currentPart < bonus.parts.length - 1) {
-          readPart(bonus, currentPart + 1)
-        } else {
-          // All parts done
-          const bonusTotal = newResults.reduce((sum, r) => sum + r.points, 0)
-          setTotalScore(prev => ({
-            total: prev.total + bonusTotal,
-            bonuses: prev.bonuses + 1,
-            thirties: prev.thirties + (bonusTotal === 30 ? 1 : 0),
-          }))
-          setPhase(PHASE.DONE)
-        }
-      }, 1500)
-    } catch (err) {
-      setError('Failed to check answer: ' + err.message)
+  // Handle typing — disable voice on first keypress
+  const handleAnswerKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      handleSubmit()
+      return
     }
-  }, [phase, answer, bonus, currentPart, partResults, readPart])
+    if (!voiceDisabled && speech.listening) {
+      speech.stop()
+      setVoiceDisabled(true)
+    }
+  }, [handleSubmit, voiceDisabled, speech])
 
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
       if (e.code === 'Space' && (phase === PHASE.READING_PART || phase === PHASE.READING_LEADIN)) {
-        // Skip TTS and go to answering (for reading_part) or first part (for leadin)
         e.preventDefault()
         tts.stop()
       } else if (e.code === 'KeyN' && phase === PHASE.DONE) {
@@ -235,15 +286,22 @@ export default function BonusPractice() {
 
         {phase === PHASE.ANSWERING && (
           <div className="answer-area">
-            <input
-              ref={answerInputRef}
-              type="text"
-              className="answer-input"
-              placeholder="Type your answer..."
-              value={answer}
-              onChange={e => setAnswer(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleSubmit() }}
-            />
+            <div className="answer-input-wrapper">
+              <input
+                ref={answerInputRef}
+                type="text"
+                className={`answer-input ${speech.listening ? 'listening' : ''}`}
+                placeholder={speech.listening ? 'Listening... (or start typing)' : 'Type your answer...'}
+                value={answer}
+                onChange={e => setAnswer(e.target.value)}
+                onKeyDown={handleAnswerKeyDown}
+              />
+              {speech.supported && (
+                <span className={`mic-status ${speech.listening ? 'active' : ''}`}>
+                  {speech.listening ? '🎤' : ''}
+                </span>
+              )}
+            </div>
             <button className="btn primary" onClick={handleSubmit}>
               Submit (Enter)
             </button>

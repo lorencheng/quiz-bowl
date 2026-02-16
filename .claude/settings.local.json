@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.qbreader.org)",
+      "WebFetch(domain:python-qbreader.readthedocs.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(npm create:*)",
+      "Bash(node --version:*)",
+      "Bash(npm --version:*)",
+      "Bash(where:*)",
+      "Bash(nvm list:*)",
+      "Bash(fnm list:*)",
+      "Bash(volta list:*)",
+      "Bash(nvm.exe list:*)",
+      "Bash(nvm version:*)",
+      "Bash(command:*)",
+      "Bash(winget install:*)",
+      "Bash(export PATH=\"/c/Program Files/nodejs:$PATH\")",
+      "Bash(npm install)",
+      "Bash(npm install:*)",
+      "Bash(npx vite build)",
+      "Bash(gh api:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npx:*)"
+    ]
+  }
+}

@@ -48,53 +48,54 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     return v.find(voice => voice.lang.startsWith('en')) || v[0] || null
   }, [])
 
-  // Speak a chunk of words starting from a given index.
-  // We speak in small chunks (sentences or groups) for natural flow,
-  // but track word boundaries to update the highlight.
-  const speakFrom = useCallback((words, startIndex) => {
+  // Speak all words as a single utterance, using onboundary to track word position.
+  const speakAll = useCallback((words) => {
     if (cancelledRef.current) return
-    if (startIndex >= words.length) {
+    if (words.length === 0) {
       setSpeaking(false)
-      setPaused(false)
       setDone(true)
-      setWordIndex(words.length - 1)
       return
     }
 
-    // Find next sentence boundary (., ?, !) or take up to 15 words
-    let endIndex = startIndex
-    for (let i = startIndex; i < words.length && i < startIndex + 15; i++) {
-      endIndex = i + 1
-      const word = words[i]
-      if (/[.?!]$/.test(word)) break
-    }
-
-    const chunk = words.slice(startIndex, endIndex).join(' ')
-    const utt = new SpeechSynthesisUtterance(chunk)
+    const text = words.join(' ')
+    const utt = new SpeechSynthesisUtterance(text)
     utt.rate = rateRef.current
     const voice = getVoice()
     if (voice) utt.voice = voice
 
     utteranceRef.current = utt
-    currentIndexRef.current = startIndex
+    currentIndexRef.current = 0
 
-    // Track word boundaries for highlighting
-    let boundaryWordIndex = startIndex
+    // Map character offsets to word indices for boundary tracking
+    const charToWord = []
+    let charPos = 0
+    for (let i = 0; i < words.length; i++) {
+      charToWord.push({ start: charPos, wordIndex: i })
+      charPos += words[i].length + 1 // +1 for the space
+    }
+
     utt.onboundary = (event) => {
       if (event.name === 'word') {
-        setWordIndex(boundaryWordIndex)
-        currentIndexRef.current = boundaryWordIndex
-        boundaryWordIndex++
+        // Find which word this character offset corresponds to
+        let wi = 0
+        for (let i = charToWord.length - 1; i >= 0; i--) {
+          if (event.charIndex >= charToWord[i].start) {
+            wi = charToWord[i].wordIndex
+            break
+          }
+        }
+        setWordIndex(wi)
+        currentIndexRef.current = wi
       }
     }
 
     utt.onend = () => {
       if (cancelledRef.current) return
-      // Update index to the end of this chunk
-      setWordIndex(endIndex - 1)
-      currentIndexRef.current = endIndex
-      // Speak next chunk
-      speakFrom(words, endIndex)
+      setWordIndex(words.length - 1)
+      currentIndexRef.current = words.length
+      setSpeaking(false)
+      setPaused(false)
+      setDone(true)
     }
 
     utt.onerror = (event) => {
@@ -103,8 +104,7 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
       setSpeaking(false)
     }
 
-    // Set wordIndex to the start of this chunk if boundary events don't fire
-    setWordIndex(startIndex)
+    setWordIndex(0)
     window.speechSynthesis.speak(utt)
   }, [getVoice])
 
@@ -121,8 +121,8 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     setDone(false)
     setSpeaking(true)
     setPaused(false)
-    speakFrom(words, 0)
-  }, [speakFrom])
+    speakAll(words)
+  }, [speakAll])
 
   /**
    * Pause speech.

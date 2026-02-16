@@ -21,6 +21,7 @@ export default function TossupPractice() {
   })
   const [tossup, setTossup] = useState(null)
   const [words, setWords] = useState([])
+  const [powerIndex, setPowerIndex] = useState(-1)
   const [phase, setPhase] = useState(PHASE.IDLE)
   const [buzzIndex, setBuzzIndex] = useState(-1)
   const [answer, setAnswer] = useState('')
@@ -57,12 +58,18 @@ export default function TossupPractice() {
       setTossup(t)
       // Use sanitized text for TTS, split into words
       const text = t.question_sanitized || t.question
-      const w = text.split(/\s+/).filter(Boolean)
-      setWords(w)
+      const rawWords = text.split(/\s+/).filter(Boolean)
+      // Find power mark index from raw question (may not be in sanitized text)
+      const rawQ = (t.question || '').split(/\s+/).filter(Boolean)
+      const pwrIdx = rawQ.findIndex(w => w.includes('(*)'))
+      setPowerIndex(pwrIdx)
+      // Keep (*) in display words, strip it only for TTS
+      setWords(rawWords)
       setPhase(PHASE.READING)
       setLoading(false)
-      // Start reading
-      tts.speak(w)
+      // Strip (*) from words for TTS only
+      const ttsWords = rawWords.map(word => word.replace('(*)', '').trim()).filter(Boolean)
+      tts.speak(ttsWords)
     } catch (err) {
       setError('Failed to fetch tossup: ' + err.message)
       setLoading(false)
@@ -87,16 +94,10 @@ export default function TossupPractice() {
       const res = await checkAnswer(answer.trim(), expectedAnswer)
       const directive = res.directive // "accept", "reject", or "prompt"
 
-      // Determine if power (buzzed before the power mark "(*)")
-      const questionText = tossup.question || ''
-      const powerMarkPos = questionText.indexOf('(*)')
-      const wordsBefore = powerMarkPos >= 0
-        ? questionText.substring(0, powerMarkPos).split(/\s+/).filter(Boolean).length
-        : -1
-
+      // Determine if power (buzzed before the TTS voice reached the power mark)
       let points = 0
       if (directive === 'accept') {
-        if (wordsBefore > 0 && buzzIndex < wordsBefore) {
+        if (powerIndex >= 0 && buzzIndex < powerIndex) {
           points = 15
         } else {
           points = 10
@@ -130,7 +131,7 @@ export default function TossupPractice() {
     } catch (err) {
       setError('Failed to check answer: ' + err.message)
     }
-  }, [phase, answer, tossup, buzzIndex])
+  }, [phase, answer, tossup, buzzIndex, powerIndex])
 
   // Keyboard shortcuts
   useEffect(() => {

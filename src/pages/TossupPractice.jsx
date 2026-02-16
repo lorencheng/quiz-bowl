@@ -68,6 +68,7 @@ export default function TossupPractice() {
         directedPrompt: res.directedPrompt,
         points,
         isPower: points === 15,
+        userAnswer: answerText.trim(),
       })
 
       if (directive !== 'prompt') {
@@ -299,6 +300,11 @@ export default function TossupPractice() {
                   ? `Incorrect. ${result.points}`
                   : 'No points'}
             </div>
+            {result?.userAnswer && (
+              <div className="answer-display">
+                <strong>Your answer:</strong> {result.userAnswer}
+              </div>
+            )}
             <div className="answer-display">
               <strong>Answer:</strong>{' '}
               <span dangerouslySetInnerHTML={{ __html: tossup.answer }} />

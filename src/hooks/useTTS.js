@@ -118,10 +118,12 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
   }, [getVoice, advanceWordIndex])
 
   // ---------------------------------------------------------------
-  // Strategy 2: Android — phrase-level chunks queued upfront
+  // Strategy 2: Android — phrase-level chunks chained sequentially
+  // Each chunk speaks after the previous finishes, adding natural
+  // pauses at sentence/clause boundaries instead of rushing through.
   // ---------------------------------------------------------------
 
-  // Build chunks of ~MAX_CHUNK_WORDS words, preferring punctuation breaks.
+  // Build chunks splitting at punctuation boundaries.
   const buildChunks = useCallback((words) => {
     const chunks = []
     let chunkStart = 0
@@ -148,7 +150,9 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     const chunks = buildChunks(words)
     const voice = getVoice()
 
-    for (let c = 0; c < chunks.length; c++) {
+    const speakChunk = (c) => {
+      if (cancelledRef.current || c >= chunks.length) return
+
       const chunk = chunks[c]
       const utt = new SpeechSynthesisUtterance(chunk.text)
       utt.rate = rateRef.current
@@ -160,13 +164,17 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
         advanceWordIndex(chunk.endIndex)
       }
 
-      if (c === chunks.length - 1) {
-        utt.onend = () => {
-          if (cancelledRef.current) return
+      utt.onend = () => {
+        if (cancelledRef.current) return
+        if (c === chunks.length - 1) {
+          // Last chunk finished
           advanceWordIndex(words.length - 1)
           setSpeaking(false)
           setPaused(false)
           setDone(true)
+        } else {
+          // Chain next chunk after a brief pause for natural pacing
+          setTimeout(() => speakChunk(c + 1), 150)
         }
       }
 
@@ -178,6 +186,8 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
 
       window.speechSynthesis.speak(utt)
     }
+
+    speakChunk(0)
   }, [getVoice, buildChunks, advanceWordIndex])
 
   // ---------------------------------------------------------------

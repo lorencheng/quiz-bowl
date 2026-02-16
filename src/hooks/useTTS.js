@@ -21,6 +21,8 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
   const cancelledRef = useRef(false)
   const rateRef = useRef(rate)
   const voiceURIRef = useRef(voiceURI)
+  const timerRef = useRef(null)
+  const boundaryFiredRef = useRef(false)
 
   rateRef.current = rate
   voiceURIRef.current = voiceURI
@@ -48,7 +50,32 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     return v.find(voice => voice.lang.startsWith('en')) || v[0] || null
   }, [])
 
-  // Speak all words as a single utterance, using onboundary to track word position.
+  // Start a timer-based fallback for advancing wordIndex.
+  // Used when onboundary events don't fire (e.g. Android).
+  const startFallbackTimer = useCallback((words, rate) => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    // Estimate ~150ms per word at rate 1x
+    const msPerWord = 150 / rate
+    let idx = 0
+    timerRef.current = setInterval(() => {
+      if (cancelledRef.current || boundaryFiredRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+        return
+      }
+      idx++
+      if (idx >= words.length) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+        return
+      }
+      setWordIndex(idx)
+      currentIndexRef.current = idx
+    }, msPerWord)
+  }, [])
+
+  // Speak all words as a single utterance, using onboundary to track word position
+  // with a timer-based fallback for platforms that don't fire boundary events.
   const speakAll = useCallback((words) => {
     if (cancelledRef.current) return
     if (words.length === 0) {
@@ -65,6 +92,7 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
 
     utteranceRef.current = utt
     currentIndexRef.current = 0
+    boundaryFiredRef.current = false
 
     // Map character offsets to word indices for boundary tracking
     const charToWord = []
@@ -76,6 +104,14 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
 
     utt.onboundary = (event) => {
       if (event.name === 'word') {
+        // Boundary events work — stop the fallback timer
+        if (!boundaryFiredRef.current) {
+          boundaryFiredRef.current = true
+          if (timerRef.current) {
+            clearInterval(timerRef.current)
+            timerRef.current = null
+          }
+        }
         // Find which word this character offset corresponds to
         let wi = 0
         for (let i = charToWord.length - 1; i >= 0; i--) {
@@ -90,6 +126,10 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     }
 
     utt.onend = () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
       if (cancelledRef.current) return
       setWordIndex(words.length - 1)
       currentIndexRef.current = words.length
@@ -99,6 +139,10 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     }
 
     utt.onerror = (event) => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
       if (event.error === 'canceled' || event.error === 'interrupted') return
       console.error('TTS error:', event.error)
       setSpeaking(false)
@@ -106,7 +150,10 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
 
     setWordIndex(0)
     window.speechSynthesis.speak(utt)
-  }, [getVoice])
+
+    // Start fallback timer — it will self-cancel if onboundary fires
+    startFallbackTimer(words, rateRef.current)
+  }, [getVoice, startFallbackTimer])
 
   /**
    * Start speaking an array of words from the beginning.
@@ -146,6 +193,7 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
    */
   const stop = useCallback(() => {
     cancelledRef.current = true
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     window.speechSynthesis.cancel()
     const stoppedAt = currentIndexRef.current
     setSpeaking(false)
@@ -158,6 +206,7 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
    */
   const reset = useCallback(() => {
     cancelledRef.current = true
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     window.speechSynthesis.cancel()
     wordsRef.current = []
     currentIndexRef.current = 0
@@ -171,6 +220,7 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
   useEffect(() => {
     return () => {
       cancelledRef.current = true
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
       window.speechSynthesis.cancel()
     }
   }, [])

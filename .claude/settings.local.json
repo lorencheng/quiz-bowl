@@ -29,7 +29,8 @@
       "Bash(git commit:*)",
       "Bash(npx:*)",
       "WebFetch(domain:weboutloud.io)",
-      "WebFetch(domain:codersblock.com)"
+      "WebFetch(domain:codersblock.com)",
+      "Bash(npm ls:*)"
     ]
   }
 }

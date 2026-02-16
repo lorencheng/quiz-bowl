@@ -71,12 +71,9 @@ export default function Multiplayer() {
     onInterimResult: handleVoiceInterim,
   })
 
-  // Start voice recognition when this player buzzes
+  // Clean up voice recognition when no longer buzzed
   useEffect(() => {
     const isBuzzed = buzzedPlayer && buzzedPlayer.userId === clientRef.current?.userId
-    if (isBuzzed && speech.supported && !voiceDisabled) {
-      speech.start()
-    }
     if (!isBuzzed) {
       speech.reset()
       setVoiceDisabled(false)
@@ -296,10 +293,12 @@ export default function Multiplayer() {
   }, [])
 
   // Buzz
+  // Buzz — start speech recognition directly here (user gesture context for Android)
   const handleBuzz = useCallback(() => {
     if (!canBuzz) return
     clientRef.current?.buzz()
-  }, [canBuzz])
+    if (speech.supported && !voiceDisabled) speech.start()
+  }, [canBuzz, speech, voiceDisabled])
 
   // Submit answer from keyboard
   const handleSubmitAnswer = useCallback(() => {
@@ -520,10 +519,14 @@ export default function Multiplayer() {
                     }}
                     onKeyDown={handleAnswerKeyDown}
                   />
-                  {speech.supported && (
-                    <span className={`mic-status ${speech.listening ? 'active' : ''}`}>
-                      {speech.listening ? '🎤' : ''}
-                    </span>
+                  {speech.supported && !voiceDisabled && (
+                    <button
+                      type="button"
+                      className={`mic-btn ${speech.listening ? 'active' : ''}`}
+                      onClick={() => { if (!speech.listening) speech.start() }}
+                    >
+                      🎤
+                    </button>
                   )}
                 </div>
                 <button className="btn primary" onClick={handleSubmitAnswer}>Submit</button>

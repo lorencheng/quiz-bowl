@@ -103,11 +103,8 @@ export default function TossupPractice() {
     onInterimResult: handleVoiceInterim,
   })
 
-  // Start voice recognition when buzzing phase begins
+  // Clean up voice recognition when leaving buzzing phase
   useEffect(() => {
-    if (phase === PHASE.BUZZING && speech.supported && !voiceDisabled) {
-      speech.start()
-    }
     if (phase !== PHASE.BUZZING) {
       speech.reset()
       setVoiceDisabled(false)
@@ -154,14 +151,15 @@ export default function TossupPractice() {
     }
   }, [settings.categories, settings.difficulties, tts]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Buzz handler
+  // Buzz handler — start speech recognition directly here (user gesture context)
   const handleBuzz = useCallback(() => {
     if (phase !== PHASE.READING) return
     const stoppedAt = tts.stop()
     setBuzzIndex(stoppedAt)
     setPhase(PHASE.BUZZING)
+    if (speech.supported && !voiceDisabled) speech.start()
     setTimeout(() => answerInputRef.current?.focus(), 50)
-  }, [phase, tts])
+  }, [phase, tts, speech, voiceDisabled])
 
   // Submit answer from keyboard
   const handleSubmit = useCallback(() => {
@@ -276,10 +274,14 @@ export default function TossupPractice() {
                 onChange={e => setAnswer(e.target.value)}
                 onKeyDown={handleAnswerKeyDown}
               />
-              {speech.supported && (
-                <span className={`mic-status ${speech.listening ? 'active' : ''}`}>
-                  {speech.listening ? '🎤' : ''}
-                </span>
+              {speech.supported && !voiceDisabled && (
+                <button
+                  type="button"
+                  className={`mic-btn ${speech.listening ? 'active' : ''}`}
+                  onClick={() => { if (!speech.listening) speech.start() }}
+                >
+                  🎤
+                </button>
               )}
             </div>
             <button className="btn primary" onClick={handleSubmit}>

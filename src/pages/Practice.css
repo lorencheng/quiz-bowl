@@ -155,20 +155,37 @@
   50% { border-color: #e53935; }
 }
 
-.mic-status {
+.mic-btn {
   position: absolute;
-  right: 0.6rem;
-  font-size: 1.1rem;
-  pointer-events: none;
+  right: 0.4rem;
+  font-size: 1.2rem;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s, border-color 0.15s;
 }
 
-.mic-status.active {
-  animation: pulse-mic 1s ease-in-out infinite;
+.mic-btn:hover {
+  opacity: 0.8;
+}
+
+.mic-btn.active {
+  opacity: 1;
+  border-color: #e53935;
+  animation: pulse-mic 1.5s ease-in-out infinite;
 }
 
 @keyframes pulse-mic {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% { opacity: 1; border-color: #e53935; }
+  50% { opacity: 0.6; border-color: transparent; }
 }
 
 /* Result */

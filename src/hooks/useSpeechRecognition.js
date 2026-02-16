@@ -9,6 +9,10 @@ import { useState, useRef, useCallback, useEffect } from 'react'
  *
  * If the user starts typing, the caller should call stop() to disable voice.
  *
+ * On Android, SpeechRecognition.start() only works inside a direct user
+ * gesture (tap/click). The pages call start() in their buzz/answer handlers.
+ * A tappable mic button is shown as fallback if auto-start doesn't activate.
+ *
  * @param {Object} opts
  * @param {Function} [opts.onFinalResult] - Called with the final transcript string
  *   when the user pauses speaking. The caller should use this to auto-submit.
@@ -103,8 +107,6 @@ export default function useSpeechRecognition({ onFinalResult, onInterimResult } 
 
     recognition.onend = () => {
       setListening(false)
-      // If recognition ended naturally (not manually stopped) and no final
-      // result was delivered, don't restart — the user may want to type instead.
     }
 
     recognitionRef.current = recognition

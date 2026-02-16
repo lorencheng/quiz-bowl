@@ -296,10 +296,14 @@ export default function BonusPractice() {
                 onChange={e => setAnswer(e.target.value)}
                 onKeyDown={handleAnswerKeyDown}
               />
-              {speech.supported && (
-                <span className={`mic-status ${speech.listening ? 'active' : ''}`}>
-                  {speech.listening ? '🎤' : ''}
-                </span>
+              {speech.supported && !voiceDisabled && (
+                <button
+                  type="button"
+                  className={`mic-btn ${speech.listening ? 'active' : ''}`}
+                  onClick={() => { if (!speech.listening) speech.start() }}
+                >
+                  🎤
+                </button>
               )}
             </div>
             <button className="btn primary" onClick={handleSubmit}>

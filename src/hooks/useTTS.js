@@ -2,15 +2,21 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 
 /**
  * Custom hook for text-to-speech using the Web Speech API.
- * Speaks in sentence-sized chunks for natural flow. Words within each
- * chunk are revealed when that chunk starts speaking (via onstart),
- * which fires reliably on all platforms including Android.
  *
- * @param {Object} opts
- * @param {number} [opts.rate=1] - Speech rate (0.5 - 2)
- * @param {string} [opts.voiceURI] - Preferred voice URI
- * @returns {Object} TTS controls and state
+ * Two strategies based on platform:
+ * - Desktop/iOS: Single utterance + onboundary for word-by-word display.
+ * - Android: Phrase-level chunks (~5 words, breaking at punctuation) queued
+ *   upfront. Each chunk's onstart reveals its words. Gaps at phrase boundaries
+ *   sound natural.
+ *
+ * All wordIndex updates use Math.max to guarantee the index only moves forward,
+ * preventing any flashing of words.
  */
+
+const IS_ANDROID = /android/i.test(navigator.userAgent)
+// Android chunks only break at punctuation — no max word limit,
+// so pauses only occur at natural sentence/clause boundaries.
+
 export default function useTTS({ rate = 1, voiceURI } = {}) {
   const [speaking, setSpeaking] = useState(false)
   const [paused, setPaused] = useState(false)
@@ -26,6 +32,12 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
 
   rateRef.current = rate
   voiceURIRef.current = voiceURI
+
+  // Helper: only advance wordIndex forward, never backward
+  const advanceWordIndex = useCallback((newIndex) => {
+    setWordIndex(prev => Math.max(prev, newIndex))
+    currentIndexRef.current = Math.max(currentIndexRef.current, newIndex)
+  }, [])
 
   // Load available voices
   useEffect(() => {
@@ -46,19 +58,79 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
       const match = v.find(voice => voice.voiceURI === voiceURIRef.current)
       if (match) return match
     }
-    // Default to first English voice
     return v.find(voice => voice.lang.startsWith('en')) || v[0] || null
   }, [])
 
-  // Split words into sentence/clause chunks at punctuation boundaries.
-  // Returns array of { text, startIndex, endIndex } objects.
+  // ---------------------------------------------------------------
+  // Strategy 1: Desktop/iOS — single utterance + onboundary
+  // ---------------------------------------------------------------
+  const speakSingleUtterance = useCallback((words) => {
+    if (cancelledRef.current) return
+
+    const text = words.join(' ')
+    const utt = new SpeechSynthesisUtterance(text)
+    utt.rate = rateRef.current
+    const voice = getVoice()
+    if (voice) utt.voice = voice
+
+    // Build character-offset → word-index map for onboundary
+    const charToWord = []
+    let charPos = 0
+    for (let i = 0; i < words.length; i++) {
+      charToWord.push({ start: charPos, wordIndex: i })
+      charPos += words[i].length + 1
+    }
+
+    utt.onstart = () => {
+      if (cancelledRef.current) return
+      advanceWordIndex(0)
+    }
+
+    utt.onboundary = (event) => {
+      if (cancelledRef.current) return
+      if (event.name === 'word') {
+        let wi = 0
+        for (let i = charToWord.length - 1; i >= 0; i--) {
+          if (event.charIndex >= charToWord[i].start) {
+            wi = charToWord[i].wordIndex
+            break
+          }
+        }
+        advanceWordIndex(wi)
+      }
+    }
+
+    utt.onend = () => {
+      if (cancelledRef.current) return
+      advanceWordIndex(words.length - 1)
+      setSpeaking(false)
+      setPaused(false)
+      setDone(true)
+    }
+
+    utt.onerror = (event) => {
+      if (event.error === 'canceled' || event.error === 'interrupted') return
+      console.error('TTS error:', event.error)
+      setSpeaking(false)
+    }
+
+    window.speechSynthesis.speak(utt)
+  }, [getVoice, advanceWordIndex])
+
+  // ---------------------------------------------------------------
+  // Strategy 2: Android — phrase-level chunks queued upfront
+  // ---------------------------------------------------------------
+
+  // Build chunks of ~MAX_CHUNK_WORDS words, preferring punctuation breaks.
   const buildChunks = useCallback((words) => {
     const chunks = []
     let chunkStart = 0
 
     for (let i = 0; i < words.length; i++) {
-      // Split at sentence/clause-ending punctuation
-      if (/[.?!;,:]$/.test(words[i]) || i === words.length - 1) {
+      const atPunctuation = /[.?!;,:]$/.test(words[i])
+      const atEnd = i === words.length - 1
+
+      if (atPunctuation || atEnd) {
         chunks.push({
           text: words.slice(chunkStart, i + 1).join(' '),
           startIndex: chunkStart,
@@ -70,16 +142,8 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     return chunks
   }, [])
 
-  // Speak text in sentence-sized chunks. Each chunk's onstart reveals
-  // all its words at once. Pauses between sentences are natural.
-  // onboundary provides finer word-level tracking when available (desktop).
-  const speakChunks = useCallback((words) => {
+  const speakChunked = useCallback((words) => {
     if (cancelledRef.current) return
-    if (words.length === 0) {
-      setSpeaking(false)
-      setDone(true)
-      return
-    }
 
     const chunks = buildChunks(words)
     const voice = getVoice()
@@ -90,70 +154,19 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
       utt.rate = rateRef.current
       if (voice) utt.voice = voice
 
-      // When this chunk starts, reveal the first word. onboundary will
-      // advance word-by-word on desktop. On Android (no onboundary),
-      // onend will reveal the rest before the next chunk starts.
-      const chunkWords = words.slice(chunk.startIndex, chunk.endIndex + 1)
-      const charToWord = []
-      let charPos = 0
-      for (let i = 0; i < chunkWords.length; i++) {
-        charToWord.push({ start: charPos, wordIndex: chunk.startIndex + i })
-        charPos += chunkWords[i].length + 1
-      }
-
-      let boundaryFired = false
-      let fallbackTimer = null
-
       utt.onstart = () => {
         if (cancelledRef.current) return
-        setWordIndex(chunk.startIndex)
-        currentIndexRef.current = chunk.startIndex
-        // Fallback for Android: if onboundary doesn't fire within 100ms,
-        // reveal all words in this chunk immediately
-        fallbackTimer = setTimeout(() => {
-          if (!boundaryFired && !cancelledRef.current) {
-            setWordIndex(chunk.endIndex)
-            currentIndexRef.current = chunk.endIndex
-          }
-        }, 100)
+        // Reveal all words in this chunk when it starts speaking
+        advanceWordIndex(chunk.endIndex)
       }
 
-      utt.onboundary = (event) => {
-        if (event.name === 'word') {
-          if (!boundaryFired) {
-            boundaryFired = true
-            clearTimeout(fallbackTimer)
-          }
-          let wi = chunk.startIndex
-          for (let i = charToWord.length - 1; i >= 0; i--) {
-            if (event.charIndex >= charToWord[i].start) {
-              wi = charToWord[i].wordIndex
-              break
-            }
-          }
-          setWordIndex(wi)
-          currentIndexRef.current = wi
-        }
-      }
-
-      // onend: ensure all words in chunk are revealed, then handle done
       if (c === chunks.length - 1) {
         utt.onend = () => {
-          clearTimeout(fallbackTimer)
           if (cancelledRef.current) return
-          setWordIndex(words.length - 1)
-          currentIndexRef.current = words.length
+          advanceWordIndex(words.length - 1)
           setSpeaking(false)
           setPaused(false)
           setDone(true)
-        }
-      } else {
-        utt.onend = () => {
-          clearTimeout(fallbackTimer)
-          if (cancelledRef.current) return
-          // Always ensure all chunk words are revealed before next chunk
-          setWordIndex(chunk.endIndex)
-          currentIndexRef.current = chunk.endIndex
         }
       }
 
@@ -165,12 +178,12 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
 
       window.speechSynthesis.speak(utt)
     }
-  }, [getVoice, buildChunks])
+  }, [getVoice, buildChunks, advanceWordIndex])
 
-  /**
-   * Start speaking an array of words from the beginning.
-   * @param {string[]} words
-   */
+  // ---------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------
+
   const speak = useCallback((words) => {
     window.speechSynthesis.cancel()
     cancelledRef.current = false
@@ -180,29 +193,30 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     setDone(false)
     setSpeaking(true)
     setPaused(false)
-    speakChunks(words)
-  }, [speakChunks])
 
-  /**
-   * Pause speech.
-   */
+    if (words.length === 0) {
+      setSpeaking(false)
+      setDone(true)
+      return
+    }
+
+    if (IS_ANDROID) {
+      speakChunked(words)
+    } else {
+      speakSingleUtterance(words)
+    }
+  }, [speakSingleUtterance, speakChunked])
+
   const pause = useCallback(() => {
     window.speechSynthesis.pause()
     setPaused(true)
   }, [])
 
-  /**
-   * Resume speech.
-   */
   const resume = useCallback(() => {
     window.speechSynthesis.resume()
     setPaused(false)
   }, [])
 
-  /**
-   * Stop speech entirely. Returns the word index where we stopped.
-   * @returns {number} The word index at time of stopping
-   */
   const stop = useCallback(() => {
     cancelledRef.current = true
     window.speechSynthesis.cancel()
@@ -212,9 +226,6 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     return stoppedAt
   }, [])
 
-  /**
-   * Reset all TTS state.
-   */
   const reset = useCallback(() => {
     cancelledRef.current = true
     window.speechSynthesis.cancel()
@@ -226,7 +237,6 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     setDone(false)
   }, [])
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       cancelledRef.current = true

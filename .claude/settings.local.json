@@ -27,7 +27,9 @@
       "Bash(gh api:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "WebFetch(domain:weboutloud.io)",
+      "WebFetch(domain:codersblock.com)"
     ]
   }
 }

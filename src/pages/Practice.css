@@ -283,3 +283,48 @@
   font-size: 1rem;
   color: #444;
 }
+
+/* Mobile: compact spacing + scrollable question + sticky controls */
+@media (max-width: 768px) {
+  .practice-page h1 {
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .scoreboard {
+    padding: 0.4rem 0.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.8rem;
+    gap: 1rem;
+  }
+
+  .question-area {
+    margin-bottom: 0.75rem;
+  }
+
+  .question-meta {
+    margin-bottom: 0.4rem;
+  }
+
+  .question-text {
+    padding: 0.6rem;
+    line-height: 1.5;
+    min-height: 60px;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+
+  .controls {
+    position: sticky;
+    bottom: 0;
+    background: #242424;
+    padding: 0.5rem 0;
+    z-index: 10;
+  }
+}
+
+@media (max-width: 768px) and (prefers-color-scheme: light) {
+  .controls {
+    background: #ffffff;
+  }
+}

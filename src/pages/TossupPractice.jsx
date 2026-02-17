@@ -34,6 +34,7 @@ export default function TossupPractice() {
   const [voiceDisabled, setVoiceDisabled] = useState(false)
 
   const answerInputRef = useRef(null)
+  const questionTextRef = useRef(null)
   const submittingRef = useRef(false)
 
   const tts = useTTS({ rate: settings.rate, voiceURI: settings.voiceURI })
@@ -164,6 +165,12 @@ export default function TossupPractice() {
     }
   }, [handleSubmit, voiceDisabled, speech])
 
+  // Auto-scroll question text to keep latest words visible
+  useEffect(() => {
+    const el = questionTextRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [tts.wordIndex])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
@@ -206,7 +213,7 @@ export default function TossupPractice() {
             {tossup.set && <span className="meta-tag">{tossup.set.name}</span>}
           </div>
 
-          <div className="question-text">
+          <div className="question-text" ref={questionTextRef}>
             {words.map((word, i) => {
               const visible = phase === PHASE.RESULT || tts.done || i <= (phase === PHASE.BUZZING ? buzzIndex : tts.wordIndex)
               if (!visible) return null

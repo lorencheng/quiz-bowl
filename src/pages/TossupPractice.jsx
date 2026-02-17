@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getRandomTossup, checkAnswer } from '../api/qbreader'
+import { findPowerIndex, stripPowerMarker, calcTossupPoints, updateTossupScore } from '../utils/tossup'
 import useTTS from '../hooks/useTTS'
 import useSpeechRecognition from '../hooks/useSpeechRecognition'
 import Settings from '../components/Settings'
@@ -48,20 +49,7 @@ export default function TossupPractice() {
       const res = await checkAnswer(answerText.trim(), expectedAnswer)
       const directive = res.directive
 
-      let points = 0
-      if (directive === 'accept') {
-        if (powerIndex >= 0 && buzzIndex < powerIndex) {
-          points = 15
-        } else {
-          points = 10
-        }
-      } else if (directive === 'reject') {
-        points = -5
-      }
-
-      if (directive === 'prompt') {
-        points = 0
-      }
+      const points = calcTossupPoints(directive, powerIndex, buzzIndex)
 
       setResult({
         directive,
@@ -72,12 +60,7 @@ export default function TossupPractice() {
       })
 
       if (directive !== 'prompt') {
-        setScore(prev => ({
-          correct: prev.correct + (points > 0 ? 1 : 0),
-          neg: prev.neg + (points < 0 ? 1 : 0),
-          total: prev.total + points,
-          questions: prev.questions + 1,
-        }))
+        setScore(prev => updateTossupScore(prev, points))
         setPhase(PHASE.RESULT)
       }
     } catch (err) {
@@ -139,12 +122,11 @@ export default function TossupPractice() {
       const text = t.question_sanitized || t.question
       const rawWords = text.split(/\s+/).filter(Boolean)
       const rawQ = (t.question || '').split(/\s+/).filter(Boolean)
-      const pwrIdx = rawQ.findIndex(w => w.includes('(*)'))
-      setPowerIndex(pwrIdx)
+      setPowerIndex(findPowerIndex(rawQ))
       setWords(rawWords)
       setPhase(PHASE.READING)
       setLoading(false)
-      const ttsWords = rawWords.map(word => word.replace('(*)', '').trim()).filter(Boolean)
+      const ttsWords = stripPowerMarker(rawWords)
       tts.speak(ttsWords)
     } catch (err) {
       setError('Failed to fetch tossup: ' + err.message)

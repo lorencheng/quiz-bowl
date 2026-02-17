@@ -15,18 +15,37 @@ async function throttledRequest(config) {
   return axios(config)
 }
 
-function get(path, params = {}) {
-  // Remove undefined/null params
-  const cleanParams = {}
+/**
+ * Strip undefined/null/empty-string values from a params object.
+ * @param {Object} params
+ * @returns {Object}
+ */
+export function cleanParams(params) {
+  const cleaned = {}
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      cleanParams[key] = value
+      cleaned[key] = value
     }
   }
+  return cleaned
+}
+
+/**
+ * Normalize an answer string for the QBReader API.
+ * Converts leading negative numbers (e.g. "-1") to words ("negative 1").
+ * @param {string} answer
+ * @returns {string}
+ */
+export function normalizeAnswer(answer) {
+  return answer.replace(/^-(\d)/, 'negative $1')
+}
+
+function get(path, params = {}) {
+  const cleanedParams = cleanParams(params)
   return throttledRequest({
     method: 'GET',
     url: `${BASE_URL}${path}`,
-    params: cleanParams,
+    params: cleanedParams,
   }).then(res => res.data)
 }
 
@@ -98,9 +117,10 @@ export async function getRandomBonus(opts = {}) {
  *   directive: "accept", "reject", or "prompt"
  */
 export async function checkAnswer(givenAnswer, expectedAnswer) {
+  const normalized = normalizeAnswer(givenAnswer)
   return get('/check-answer', {
     answerline: expectedAnswer,
-    givenAnswer,
+    givenAnswer: normalized,
   })
 }
 

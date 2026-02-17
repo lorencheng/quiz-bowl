@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getRandomBonus, checkAnswer } from '../api/qbreader'
+import { calcBonusTotal, updateBonusScore } from '../utils/bonus'
 import useTTS from '../hooks/useTTS'
 import useSpeechRecognition from '../hooks/useSpeechRecognition'
 import Settings from '../components/Settings'
@@ -58,12 +59,8 @@ export default function BonusPractice() {
         if (currentPart < bonus.parts.length - 1) {
           readPart(bonus, currentPart + 1)
         } else {
-          const bonusTotal = newResults.reduce((sum, r) => sum + r.points, 0)
-          setTotalScore(prev => ({
-            total: prev.total + bonusTotal,
-            bonuses: prev.bonuses + 1,
-            thirties: prev.thirties + (bonusTotal === 30 ? 1 : 0),
-          }))
+          const bonusTotal = calcBonusTotal(newResults)
+          setTotalScore(prev => updateBonusScore(prev, bonusTotal))
           setPhase(PHASE.DONE)
         }
       }, 1500)
@@ -196,7 +193,7 @@ export default function BonusPractice() {
     return () => window.removeEventListener('keydown', handler)
   }, [phase, tts, fetchBonus])
 
-  const bonusTotal = partResults.reduce((sum, r) => sum + r.points, 0)
+  const bonusTotal = calcBonusTotal(partResults)
 
   return (
     <div className="practice-page">

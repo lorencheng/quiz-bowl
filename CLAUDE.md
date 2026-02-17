@@ -67,13 +67,20 @@ See `implementation_plan.md` for full details on each step.
 - `powerIndex` computed from raw question; compared against `buzzIndex` from sanitized text
 - Display words keep `(*)`; TTS words have it stripped
 
+## Testing
+- After modifying any source file in `src/`, run `npm test` before reporting the change as complete
+- If tests fail, fix the issue before moving on
+- When modifying scoring/TTS/answer logic, update corresponding tests in `src/utils/__tests__/`
+- `npm test` — run all tests once
+- `npm run test:watch` — run tests in watch mode during development
+
 ## Dev Commands
 - `npm run dev` — starts HTTPS dev server (accessible on local network for Android testing)
 - `npm run build` — production build
+- `npm test` — run test suite (Vitest)
 - Access from Android: `https://<local-ip>:5173/` (accept self-signed cert warning)
 
-## Uncommitted Work
-Last session's code changes are all committed. Latest changes (not yet committed):
+## Recent Changes (all committed)
 - Fixed Android TTS speed (chained chunks instead of pre-queued)
 - Added user's spoken answer display in tossup results
 - Mic button for reliable voice activation on Android

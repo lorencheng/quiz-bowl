@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { buildChunks } from '../utils/tts'
 
 /**
  * Custom hook for text-to-speech using the Web Speech API.
@@ -123,27 +124,6 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
   // pauses at sentence/clause boundaries instead of rushing through.
   // ---------------------------------------------------------------
 
-  // Build chunks splitting at punctuation boundaries.
-  const buildChunks = useCallback((words) => {
-    const chunks = []
-    let chunkStart = 0
-
-    for (let i = 0; i < words.length; i++) {
-      const atPunctuation = /[.?!;,:]$/.test(words[i])
-      const atEnd = i === words.length - 1
-
-      if (atPunctuation || atEnd) {
-        chunks.push({
-          text: words.slice(chunkStart, i + 1).join(' '),
-          startIndex: chunkStart,
-          endIndex: i,
-        })
-        chunkStart = i + 1
-      }
-    }
-    return chunks
-  }, [])
-
   const speakChunked = useCallback((words) => {
     if (cancelledRef.current) return
 
@@ -188,7 +168,7 @@ export default function useTTS({ rate = 1, voiceURI } = {}) {
     }
 
     speakChunk(0)
-  }, [getVoice, buildChunks, advanceWordIndex])
+  }, [getVoice, advanceWordIndex])
 
   // ---------------------------------------------------------------
   // Public API

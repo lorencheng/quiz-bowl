@@ -31,7 +31,11 @@
       "WebFetch(domain:weboutloud.io)",
       "WebFetch(domain:codersblock.com)",
       "Bash(npm ls:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(node -e:*)",
+      "Bash(chmod:*)",
+      "Bash(npm test)",
+      "Bash(npm run build:*)"
     ]
   }
 }

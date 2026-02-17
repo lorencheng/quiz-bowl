@@ -8,4 +8,9 @@ export default defineConfig({
   server: {
     host: true, // expose on local network so Android can connect
   },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.js'],
+  },
 })

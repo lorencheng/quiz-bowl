@@ -20,6 +20,8 @@ export default function TossupPractice() {
     voiceURI: undefined,
     categories: [],
     difficulties: [],
+    buzzTimer: 5,
+    answerTimer: 3,
   })
   const [tossup, setTossup] = useState(null)
   const [words, setWords] = useState([])
@@ -32,12 +34,35 @@ export default function TossupPractice() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [voiceDisabled, setVoiceDisabled] = useState(false)
+  const [buzzCountdown, setBuzzCountdown] = useState(null)
+  const [answerCountdown, setAnswerCountdown] = useState(null)
 
   const answerInputRef = useRef(null)
   const questionTextRef = useRef(null)
   const submittingRef = useRef(false)
+  const buzzTimerRef = useRef(null)
+  const answerTimerRef = useRef(null)
+  const buzzedAfterDoneRef = useRef(false)
+  const answerStartedRef = useRef(false)
 
   const tts = useTTS({ rate: settings.rate, voiceURI: settings.voiceURI })
+
+  // Timer helpers
+  const clearBuzzTimer = useCallback(() => {
+    if (buzzTimerRef.current) {
+      clearInterval(buzzTimerRef.current)
+      buzzTimerRef.current = null
+    }
+    setBuzzCountdown(null)
+  }, [])
+
+  const clearAnswerTimer = useCallback(() => {
+    if (answerTimerRef.current) {
+      clearInterval(answerTimerRef.current)
+      answerTimerRef.current = null
+    }
+    setAnswerCountdown(null)
+  }, [])
 
   // Submit answer (extracted so voice and keyboard can both call it)
   const doSubmit = useCallback(async (answerText) => {
@@ -80,6 +105,7 @@ export default function TossupPractice() {
 
   const handleVoiceInterim = useCallback((transcript) => {
     if (phase !== PHASE.BUZZING || voiceDisabled) return
+    answerStartedRef.current = true
     setAnswer(transcript)
   }, [phase, voiceDisabled])
 
@@ -96,17 +122,68 @@ export default function TossupPractice() {
     }
   }, [phase]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Buzz timer: starts when TTS voice finishes while still in READING phase
+  useEffect(() => {
+    if (tts.done && phase === PHASE.READING && settings.buzzTimer > 0) {
+      let remaining = Math.round(settings.buzzTimer * 10)
+      setBuzzCountdown(remaining)
+      buzzTimerRef.current = setInterval(() => {
+        remaining--
+        if (remaining <= 0) {
+          clearBuzzTimer()
+          setResult({ directive: 'reject', points: 0, timedOut: 'buzz' })
+          setScore(prev => updateTossupScore(prev, 0))
+          setPhase(PHASE.RESULT)
+        } else {
+          setBuzzCountdown(remaining)
+        }
+      }, 100)
+    }
+    return () => clearBuzzTimer()
+  }, [tts.done, phase]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Answer timer: starts when entering BUZZING phase
+  useEffect(() => {
+    if (phase === PHASE.BUZZING && settings.answerTimer > 0) {
+      answerStartedRef.current = false
+      let remaining = Math.round(settings.answerTimer * 10)
+      setAnswerCountdown(remaining)
+      answerTimerRef.current = setInterval(() => {
+        if (answerStartedRef.current) {
+          clearAnswerTimer()
+          return
+        }
+        remaining--
+        if (remaining <= 0) {
+          clearAnswerTimer()
+          speech.stop()
+          const points = buzzedAfterDoneRef.current ? 0 : -5
+          setResult({ directive: 'reject', points, timedOut: 'answer' })
+          setScore(prev => updateTossupScore(prev, points))
+          setPhase(PHASE.RESULT)
+        } else {
+          setAnswerCountdown(remaining)
+        }
+      }, 100)
+    }
+    return () => clearAnswerTimer()
+  }, [phase]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Fetch a new tossup
   const fetchTossup = useCallback(async () => {
     setLoading(true)
     setError(null)
     tts.reset()
     speech.reset()
+    clearBuzzTimer()
+    clearAnswerTimer()
     setPhase(PHASE.IDLE)
     setResult(null)
     setAnswer('')
     setBuzzIndex(-1)
     setVoiceDisabled(false)
+    buzzedAfterDoneRef.current = false
+    answerStartedRef.current = false
 
     try {
       const opts = {}
@@ -138,12 +215,14 @@ export default function TossupPractice() {
   // Buzz handler — start speech recognition directly here (user gesture context)
   const handleBuzz = useCallback(() => {
     if (phase !== PHASE.READING) return
+    buzzedAfterDoneRef.current = tts.done
+    clearBuzzTimer()
     const stoppedAt = tts.stop()
     setBuzzIndex(stoppedAt)
     setPhase(PHASE.BUZZING)
     if (speech.supported && !voiceDisabled) speech.start()
     setTimeout(() => answerInputRef.current?.focus(), 50)
-  }, [phase, tts, speech, voiceDisabled])
+  }, [phase, tts, speech, voiceDisabled, clearBuzzTimer])
 
   // Submit answer from keyboard
   const handleSubmit = useCallback(() => {
@@ -244,6 +323,11 @@ export default function TossupPractice() {
             <button className="btn buzz" onClick={handleBuzz}>
               Buzz! (Space)
             </button>
+            {buzzCountdown !== null && (
+              <span className={`countdown ${buzzCountdown <= 20 ? 'warning' : ''}`}>
+                {(buzzCountdown / 10).toFixed(1)}
+              </span>
+            )}
             {tts.paused ? (
               <button className="btn" onClick={tts.resume}>Resume</button>
             ) : (
@@ -254,6 +338,11 @@ export default function TossupPractice() {
 
         {phase === PHASE.BUZZING && (
           <div className="answer-area">
+            {answerCountdown !== null && (
+              <span className={`countdown ${answerCountdown <= 10 ? 'warning' : ''}`}>
+                {(answerCountdown / 10).toFixed(1)}
+              </span>
+            )}
             <div className="answer-input-wrapper">
               <input
                 ref={answerInputRef}
@@ -261,7 +350,7 @@ export default function TossupPractice() {
                 className={`answer-input ${speech.listening ? 'listening' : ''}`}
                 placeholder={speech.listening ? 'Listening... (or start typing)' : 'Type your answer...'}
                 value={answer}
-                onChange={e => setAnswer(e.target.value)}
+                onChange={e => { answerStartedRef.current = true; setAnswer(e.target.value) }}
                 onKeyDown={handleAnswerKeyDown}
               />
               {speech.supported && !voiceDisabled && (
@@ -283,11 +372,17 @@ export default function TossupPractice() {
         {phase === PHASE.RESULT && (
           <div className="result-area">
             <div className={`result-banner ${result?.points > 0 ? 'correct' : result?.points < 0 ? 'incorrect' : 'neutral'}`}>
-              {result?.points > 0
-                ? `Correct! ${result.isPower ? '(POWER!) ' : ''}+${result.points}`
-                : result?.points < 0
-                  ? `Incorrect. ${result.points}`
-                  : 'No points'}
+              {result?.timedOut === 'buzz'
+                ? `Didn't buzz in time. 0 points.`
+                : result?.timedOut === 'answer' && result.points < 0
+                  ? `Buzzed but didn't answer in time. ${result.points} points.`
+                  : result?.timedOut === 'answer'
+                    ? `Buzzed but didn't answer in time. 0 points.`
+                    : result?.points > 0
+                      ? `Correct! ${result.isPower ? '(POWER!) ' : ''}+${result.points} points.`
+                      : result?.points < 0
+                        ? `Wrong answer. ${result.points} points.`
+                        : `No points.`}
             </div>
             {result?.userAnswer && (
               <div className="answer-display">

@@ -57,6 +57,33 @@ export default function Settings({ settings, onChange, voices }) {
             />
           </label>
 
+          {/* Timers */}
+          <div className="setting-section">
+            <span>Timers</span>
+            <label className="setting-row">
+              <span>Buzz: {settings.buzzTimer ? `${settings.buzzTimer}s` : 'Off'}</span>
+              <input
+                type="range"
+                min="0"
+                max="15"
+                step="0.5"
+                value={settings.buzzTimer ?? 5}
+                onChange={e => update('buzzTimer', parseFloat(e.target.value))}
+              />
+            </label>
+            <label className="setting-row">
+              <span>Answer: {settings.answerTimer ? `${settings.answerTimer}s` : 'Off'}</span>
+              <input
+                type="range"
+                min="0"
+                max="15"
+                step="0.5"
+                value={settings.answerTimer ?? 3}
+                onChange={e => update('answerTimer', parseFloat(e.target.value))}
+              />
+            </label>
+          </div>
+
           {/* Categories */}
           <div className="setting-section">
             <span>Categories {settings.categories?.length ? `(${settings.categories.length})` : '(all)'}</span>

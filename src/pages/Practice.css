@@ -66,6 +66,21 @@
   50% { opacity: 0; }
 }
 
+/* Countdown timer */
+.countdown {
+  font-size: 1.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5ch;
+  text-align: center;
+  color: #888;
+  transition: color 0.2s;
+}
+
+.countdown.warning {
+  color: #e53935;
+}
+
 /* Controls */
 .controls {
   margin-top: 1rem;
